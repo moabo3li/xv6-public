@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "stdatomic.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -66,16 +67,25 @@ sys_dup(void)
   return fd;
 }
 
+atomic_int read_count = 0;
+
 int
 sys_read(void)
 {
   struct file *f;
   int n;
   char *p;
+  atomic_fetch_add(&read_count,1);
 
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argptr(1, &p, n) < 0)
     return -1;
   return fileread(f, p, n);
+}
+
+int
+sys_getreadcount(void)
+{
+  return read_count;
 }
 
 int
@@ -374,7 +384,7 @@ sys_chdir(void)
   char *path;
   struct inode *ip;
   struct proc *curproc = myproc();
-  
+
   begin_op();
   if(argstr(0, &path) < 0 || (ip = namei(path)) == 0){
     end_op();
