@@ -79,7 +79,7 @@ Process  Tickets  Expected%  CPU Usage
 The following graph shows the number of time slices each process receives over time, demonstrating the 3:2:1 ticket ratio (30:20:10 tickets):
 
 
-![alt text](<Screenshot From 2025-08-06 17-24-39.png>)
+![alt text](lottery_scheduler_graph.png)
 ```
 
 Legend: A = Process A (30 tickets), B = Process B (20 tickets), C = Process C (10 tickets)
