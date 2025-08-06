@@ -9,6 +9,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct pstat;
 
 // bio.c
 void            binit(void);
@@ -107,6 +108,7 @@ int             cpuid(void);
 void            exit(void);
 int             fork(void);
 int             growproc(int);
+int             getpinfo(struct pstat *);
 int             kill(int);
 struct cpu*     mycpu(void);
 struct proc*    myproc();
@@ -115,6 +117,7 @@ void            procdump(void);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            setproc(struct proc*);
+int             settickets(int tickets);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
 int             wait(void);

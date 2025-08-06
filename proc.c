@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "pstat.h"
 
 struct {
   struct spinlock lock;
@@ -19,6 +20,14 @@ extern void forkret(void);
 extern void trapret(void);
 
 static void wakeup1(void *chan);
+
+// Simple random number generator for lottery scheduling
+static unsigned long randstate = 1;
+
+long rand(long min, long max) {
+  randstate = randstate * 1664525 + 1013904223;
+  return min + (randstate % (max - min + 1));
+}
 
 void
 pinit(void)
@@ -88,6 +97,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  p->tickets = 1; // Default to 1 ticket
+  p->ticks = 0;   // Not run yet
 
   release(&ptable.lock);
 
@@ -198,6 +209,8 @@ fork(void)
   }
   np->sz = curproc->sz;
   np->parent = curproc;
+  np->tickets = curproc->tickets; // Copy the number of tickets from the parent
+  np->ticks = 0;                  // Reset ticks for the new process
   *np->tf = *curproc->tf;
 
   // Clear %eax so that fork returns 0 in the child.
@@ -330,29 +343,95 @@ scheduler(void)
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
+    // Acquire lock and find runnable processes
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
+    
+    // Calculate total tickets
+    long total_tickets = 0;
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      if (p->state != RUNNABLE)
+        continue;
+      total_tickets += p->tickets;
+    }
+
+    // If no runnable processes, release lock and continue
+    if (total_tickets == 0) {
+      release(&ptable.lock);
+      continue;
+    }
+
+    // Generate random winner
+    long winner = rand(0, total_tickets-1);
+    long counter = 0;
+
+    // Find the winning process
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      if (p->state != RUNNABLE)
         continue;
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+      counter += p->tickets;
+      if (counter > winner) {
+        // Switch to chosen process.  It is the process's job
+        // to release ptable.lock and then reacquire it
+        // before jumping back to us.
+        c->proc = p;
+        switchuvm(p);
+        p->state = RUNNING;
 
-      swtch(&(c->scheduler), p->context);
-      switchkvm();
+        swtch(&(c->scheduler), p->context);
+        switchkvm();
 
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        p->ticks++; // Increment after the process has actually run
+        c->proc = 0;
+        break; // Found and ran a process, break out of the loop
+      }
     }
-    release(&ptable.lock);
 
+    release(&ptable.lock);
   }
+}
+
+// Set the number of tickets for the current process.
+int settickets(int tickets)
+{
+  struct proc *curproc = myproc();
+
+  if (tickets < 1) {
+    return -1; // Invalid number of tickets
+  }
+
+  acquire(&ptable.lock);
+  curproc->tickets =
+      tickets; // Set the number of tickets for the current process
+  release(&ptable.lock);
+
+  return 0;
+}
+
+// Fill pstat structure with information about all processes
+int getpinfo(struct pstat *stat)
+{
+
+  if (stat == 0)
+    return -1;
+
+  struct proc *p;
+  int i;
+
+  acquire(&ptable.lock);
+  // Loop through all process table entries
+  for (p = ptable.proc, i = 0; p < &ptable.proc[NPROC]; p++, i++) {
+    stat->pid[i] = p->pid;
+    stat->tickets[i] = p->tickets;
+    stat->ticks[i] = p->ticks;
+    stat->inuse[i] = (p->state == UNUSED) ? 0 : 1;
+  }
+
+  release(&ptable.lock);
+
+  return 0;
 }
 
 // Enter scheduler.  Must hold only ptable.lock
